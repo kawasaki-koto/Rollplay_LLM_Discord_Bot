@@ -18,6 +18,10 @@ EMOTION_FILE = ""
 SCHEDULE_FILE = ""
 MEMORY_FILE = ""
 
+GEMINI_API_KEY_1 = os.getenv("GEMINI_API_KEY_1")
+GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2")
+GEMINI_API_KEY_3 = os.getenv("GEMINI_API_KEY_3")
+
 # --- 静的設定 ---
 MODEL_PRO = 'gemini-2.5-pro'
 MODEL_PRO_2 = 'gemini-2.5-flash'
@@ -33,6 +37,29 @@ VOICEVOX_STYLE_MAP = {
 }
 VOICEVOX_DEFAULT_STYLE_ID = 50
 VOICEVOX_SPEED_SCALE = 1.0
+
+# APIリクエストのタイムアウト時間 (秒)
+API_TIMEOUT = 120 # 例: 120秒
+
+# 履歴の最大長 (会話ターン数ではなく、user/modelメッセージの合計数)
+# 例: 50件 = 25往復分程度
+MAX_HISTORY_LENGTH = 50
+
+def get_api_timeout():
+    """APIリクエストのタイムアウト時間を取得"""
+    return API_TIMEOUT
+
+def get_max_history_length():
+    """履歴の最大長を取得"""
+    return MAX_HISTORY_LENGTH
+
+# discord.Bot インスタンスを保持 (ai_request_handler.py からアクセスするため)
+bot = None
+
+def set_bot_instance(bot_instance):
+    """Botインスタンスを設定"""
+    global bot
+    bot = bot_instance
 
 def get_default_channel_id() -> int | None:
     """

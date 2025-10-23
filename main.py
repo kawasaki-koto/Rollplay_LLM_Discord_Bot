@@ -6,10 +6,15 @@ import argparse # ★ argparseを追加
 from utils import config_manager # ★ config_managerをインポート
 from utils.console_display import display_startup_banner, log_system, log_info, log_success, log_error
 from utils import data_manager
+import utils.config_manager as config
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+intents.voice_states = True
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+
+# config_managerにBotインスタンスを設定
+config.set_bot_instance(bot)
 
 @bot.event
 async def on_ready():

@@ -38,3 +38,8 @@ def log_error(cog_name, message):
     """エラーメッセージです。"""
     timestamp = datetime.now().strftime('%H:%M:%S')
     print(f"{Fore.RED}  ! [{cog_name} @ {timestamp}] {Style.RESET_ALL}{message}")
+
+def log_warning(cog_name, message):
+    """警告メッセージです。"""
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    print(f"{Fore.YELLOW}  ⚠️ [{cog_name} @ {timestamp}] {Style.RESET_ALL}{message}")
