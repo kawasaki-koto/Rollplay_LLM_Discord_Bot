@@ -43,7 +43,7 @@ API_TIMEOUT = 120 # 例: 120秒
 
 # 履歴の最大長 (会話ターン数ではなく、user/modelメッセージの合計数)
 # 例: 50件 = 25往復分程度
-MAX_HISTORY_LENGTH = 50
+MAX_HISTORY_LENGTH = 200
 
 def get_api_timeout():
     """APIリクエストのタイムアウト時間を取得"""

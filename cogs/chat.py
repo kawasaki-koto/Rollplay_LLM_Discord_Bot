@@ -1,3 +1,5 @@
+# chat.py (修正版)
+
 import discord
 from discord.ext import commands, tasks
 from datetime import datetime
@@ -5,7 +7,7 @@ import random
 import asyncio
 
 import utils.config_manager as config
-from utils.console_display import log_info, log_system, log_success, log_error
+from utils.console_display import log_info, log_system, log_success, log_error, log_warning # log_warning を追加
 from utils import data_manager, ai_request_handler, prompt_builder
 from utils import voice_synthesizer
 
@@ -13,55 +15,45 @@ async def send_splittable_message(channel: discord.TextChannel, text: str, file:
     """
     Discordの文字数制限(2000字)を超えた場合、メッセージを分割して送信する。
     """
+    # (この関数は変更なし)
     if not text:
         return
-
     if len(text) <= 2000:
         await channel.send(text, file=file)
         return
-
     log_info("MESSAGE", f"長文メッセージ({len(text)}文字)を分割して送信します。")
     remaining_text = text
     while len(remaining_text) > 2000:
-        # 2000文字地点から最も近い、手前の改行を探す
         split_point = remaining_text.rfind('\n', 0, 2000)
-        
-        # もし2000文字以内に改行がなければ、強制的に2000文字で分割
         if split_point == -1:
             split_point = 2000
-            
-        # 最初のチャンクを送信
         await channel.send(remaining_text[:split_point])
-        # 残りのテキストを更新（分割後の先頭の空白や改行は削除）
         remaining_text = remaining_text[split_point:].lstrip()
-        
-        await asyncio.sleep(0.5) # 連投を避けるための短い待機
-
-    # 最後の残った部分を送信
+        await asyncio.sleep(0.5)
     if remaining_text:
         await channel.send(remaining_text, file=file)
 
 class ChatManagerCog(commands.Cog, name="ChatManagerCog"):
     def __init__(self, bot):
         self.bot = bot
-        self.processing_channels = set()
-        
+        self.processing_channels = set() # 処理中チャンネルを管理するセット
+
         self.unread_data = data_manager.get_data('unread')
         schedule_data = data_manager.get_data('schedule')
-        # ★ 修正: 平日と休日のスケジュールをそれぞれ保持
         self.weekday_schedule = schedule_data.get("weekday", {})
         self.weekend_schedule = schedule_data.get("weekend", {})
         self.activity_params = schedule_data.get("activity_params", {})
-        
+
         settings_data = data_manager.get_data('setting')
         self.channel_settings = settings_data.get('channel_settings', {})
-        
+
         self.current_action = "待機中"
         self.current_activity_level = 'normal'
-        
+
         log_system("チャット管理モジュールを初期化し、活動サイクルを開始します。")
         self.activity_loop.start()
 
+    # (reset_unread_messages, pop_unread_message, on_message は変更なし)
     def reset_unread_messages(self):
         """メモリ上の全ての未読メッセージをクリアします。"""
         self.unread_data.clear()
@@ -81,122 +73,176 @@ class ChatManagerCog(commands.Cog, name="ChatManagerCog"):
         """メッセージを受信したら未読リストに追加する"""
         if message.author == self.bot.user or message.content.startswith(self.bot.command_prefix):
             return
-        
-        # ★★★ 修正箇所 ★★★
-        # このチャンネルでチャットモードがONになっているか確認
+
         channel_id_str = str(message.channel.id)
         channel_setting = self.channel_settings.get(channel_id_str, {})
         if not channel_setting.get('chat_mode', False):
-            # チャットモードがOFFなら、この先の処理をすべて中断
             return
-        
+
         if channel_id_str not in self.unread_data:
             self.unread_data[channel_id_str] = []
-            
+
         self.unread_data[channel_id_str].append({
             'author': message.author.display_name, 'content': message.content,
             'timestamp': prompt_builder.get_current_time_str()
         })
         log_info("UNREAD", f"[{message.channel.name}] に未読メッセージを1件追加。")
 
-    # ... 以降の関数 (activity_loop, process_channel_activityなど) は変更ありません ...
+
     @tasks.loop(seconds=1.0)
     async def activity_loop(self):
         """一定時間待機し、ランダムなチャンネルのメッセージ処理または自発的発言を行うループ"""
+        # (この関数は変更なし)
         now = datetime.now()
         current_hour = str(now.hour)
-        # 曜日を取得 (0=月曜日, 5=土曜日, 6=日曜日)
         weekday = now.weekday()
-
-        # 土日(5, 6)かどうかでスケジュールを決定
         active_schedule = self.weekend_schedule if weekday >= 5 else self.weekday_schedule
-        
         current_schedule = active_schedule.get(current_hour, {"level": "normal", "action": "🕒 不明"})
         self.current_activity_level = current_schedule['level']
         self.current_action = current_schedule['action']
-        
         params = self.activity_params.get(self.current_activity_level, {'seconds': 3600, 'sigma': 900})
         wait_duration = max(60.0, random.normalvariate(params['seconds'], params['sigma']))
-        
+
+        # 待機時間を設定（ループ開始時のみ長時間待機）
+        # asyncio.sleep はループの最後に移動
+
+        # 次の活動までの待機
         log_info("ACTIVITY", f"現在の行動: {self.current_action} | 次の活動まで {wait_duration/60:.2f} 分待機します。")
         await asyncio.sleep(wait_duration)
-        
-        # 未読があるチャンネルか、デフォルトチャンネルを処理対象候補にする
+
+        # 処理対象チャンネルの選択
         default_channel_id = config.get_default_channel_id()
         channels_with_unread = [int(ch_id) for ch_id, msgs in self.unread_data.items() if msgs]
         candidate_channel_ids = channels_with_unread or ([default_channel_id] if default_channel_id else [])
-        
+
         if not candidate_channel_ids:
             log_info("ACTIVITY", "処理対象のチャンネルが見つかりませんでした。")
-            return
-            
+            return # ループの次のイテレーションへ
+
         target_channel_id = random.choice(candidate_channel_ids)
         await self.process_channel_activity(target_channel_id)
 
         log_info("AUTOSAVE", "自動応答後の定期データ保存を実行します。")
         data_manager.save_all_data()
 
+
     async def process_channel_activity(self, channel_id: int):
         """チャンネルの活動（未読処理 or 自発発言）を行う共通関数"""
         str_channel_id = str(channel_id)
+        # --- 処理中チェック ---
         if str_channel_id in self.processing_channels:
-            log_info("PROCESS", f"CH[{channel_id}] は処理中のためスキップ。")
+            log_warning("PROCESS_SKIP", f"CH[{channel_id}] は既に処理中のためスキップします。") # ログレベル変更
             return
-        
-        target_channel = self.bot.get_channel(channel_id)
-        if not target_channel: return
+        # ---------------------
 
+        target_channel = self.bot.get_channel(channel_id)
+        if not target_channel:
+            log_error("PROCESS", f"CH[{channel_id}] が見つかりません。")
+            return
+
+        # 処理中セットに追加
         self.processing_channels.add(str_channel_id)
+        log_info("PROCESS_START", f"CH[{channel_id}] の処理を開始します。")
+
         try:
             messages_to_process = self.unread_data.get(str_channel_id, [])
-            
-            # プロンプトを組み立て
+
+            # プロンプト組み立て
             bot_status = prompt_builder.get_bot_status_text(self.bot)
             prompt_instruction = prompt_builder.build_response_prompt(messages_to_process, bot_status)
 
             # AIに応答を要求
             async with target_channel.typing():
-                response_text = await ai_request_handler.send_request(config.MODEL_PRO, prompt_instruction, channel_id=channel_id)
+                # ai_request_handler に channel_id を渡す
+                response_text = await ai_request_handler.send_request(
+                    config.MODEL_PRO, # configからモデル名を取得
+                    prompt_instruction,
+                    channel_id=channel_id # channel_id を渡す
+                )
 
-            if not response_text:
-                log_error("PROCESS", f"CH[{target_channel.name}] AIからの応答がありませんでした。")
-                return
-            
-            if response_text:
-                # ★★★ 音声機能の組み込み ★★★
-                voice_cog = self.bot.get_cog("VoiceCog")
-                audio_file = None
-                text_for_emotion = response_text
+            if response_text is None: # Noneが返ってきたらエラーと判断
+                log_error("PROCESS", f"CH[{target_channel.name}] AIからの応答取得に失敗しました。")
+                # 必要であればユーザーにエラーメッセージを送信
+                # await target_channel.send("> SYSTEM: AI応答の取得に失敗しました。")
+                return # エラー時はここで終了
 
-                if voice_cog and voice_cog.is_voice_mode_enabled(channel_id):
-                    log_info("VOICE", f"CH[{target_channel.name}]で音声合成を実行します。")
-                    clean_text, audio_data = await voice_synthesizer.synthesize_speech_with_styles(response_text)
-                    if audio_data:
-                        audio_file = discord.File(audio_data, filename="voice.wav")
-                    text_for_emotion = clean_text # 感情分析にはスタイルタグを除いたテキストを使用
+            # --- 応答送信処理 (音声合成含む) ---
+            voice_cog = self.bot.get_cog("VoiceCog")
+            audio_file = None
+            text_for_emotion = response_text # デフォルトはそのまま
 
-                await send_splittable_message(target_channel, response_text, file=audio_file)
-                log_success("PROCESS", f"CH[{target_channel.name}] に応答しました。")
+            if voice_cog and voice_cog.is_voice_mode_enabled(channel_id):
+                log_info("VOICE", f"CH[{target_channel.name}]で音声合成を実行します。")
+                try:
+                    # synthesize_speech_with_styles がNoneを返す可能性も考慮
+                    result = await voice_synthesizer.synthesize_speech_with_styles(response_text)
+                    if result:
+                        clean_text, audio_data = result
+                        if audio_data:
+                            audio_file = discord.File(audio_data, filename="voice.wav")
+                        text_for_emotion = clean_text # スタイルタグ除去後のテキスト
+                    else:
+                         log_error("VOICE", f"CH[{target_channel.name}] 音声合成に失敗しました (synthesize_speech_with_stylesがNoneを返しました)。")
+                except Exception as e:
+                    log_error("VOICE", f"CH[{target_channel.name}] 音声合成中にエラーが発生しました: {e}")
+                    # 音声合成失敗時はテキストのみ送信
 
-            # 感情を更新し、処理済みの未読をクリア
-            if self.bot.get_cog('EmotionCog'):
+            await send_splittable_message(target_channel, response_text, file=audio_file)
+            log_success("PROCESS", f"CH[{target_channel.name}] に応答しました。")
+            # ---------------------------------
+
+            # 感情更新
+            emotion_cog = self.bot.get_cog('EmotionCog')
+            if emotion_cog:
                 user_input = "\n".join(f"[{m['author']}]: {m['content']}" for m in messages_to_process) if messages_to_process else ""
-                await self.bot.get_cog('EmotionCog').update_emotions(text_for_emotion, user_input)
-            
+                try:
+                    await emotion_cog.update_emotions(text_for_emotion, user_input)
+                except Exception as e:
+                    log_error("EMOTION", f"感情更新中にエラーが発生しました: {e}")
+
+            # 処理済み未読メッセージをクリア
             if messages_to_process:
                 self.unread_data[str_channel_id] = []
+                log_info("UNREAD", f"CH[{channel_id}] の未読メッセージをクリアしました。")
+
+
+        except Exception as e: # 包括的なエラーハンドリング
+             log_error("PROCESS_ERROR", f"CH[{channel_id}] の処理中に予期せぬエラーが発生しました: {type(e).__name__} - {e}")
+             # traceback.print_exc() # 詳細なトレースバックが必要な場合
 
         finally:
-            self.processing_channels.remove(str_channel_id)
+            # --- 確実に処理中セットから削除 ---
+            if str_channel_id in self.processing_channels:
+                self.processing_channels.remove(str_channel_id)
+                log_info("PROCESS_END", f"CH[{channel_id}] の処理を終了します。")
+            else:
+                 # 基本的にここには来ないはずだが念のため
+                 log_warning("PROCESS_END", f"CH[{channel_id}] が処理中セットにありませんでした（終了処理）。")
+            # ---------------------------------
 
+    # ★★★ 修正箇所 ★★★
     async def force_check_channel(self, channel_id: int):
         """
         ループの待機を無視して、指定されたチャンネルの活動を即座に処理する
+        (処理中チェックを追加)
         """
+        str_channel_id = str(channel_id)
+        # --- 処理中チェックを追加 ---
+        if str_channel_id in self.processing_channels:
+            log_warning("FORCE_CHECK_SKIP", f"コマンドによる CH[{channel_id}] の強制チェックは、既に処理中のためスキップします。")
+            # 必要であればコマンド発行者にメッセージを返す
+            # ctx = self.bot.get_context() # get_context() は discord.py v2.0以降では非推奨/削除の可能性
+                                         # コマンド関数内で ctx を渡すのが一般的
+            # if ctx and ctx.channel.id == channel_id:
+            #     await ctx.send("現在、このチャンネルは応答処理中です。少し待ってから再度試してください。", delete_after=10)
+            return
+        # -------------------------
+
         log_system(f"コマンドにより CH[{channel_id}] の強制チェックを実行します。")
         # 既存の処理関数をそのまま呼び出す
         await self.process_channel_activity(channel_id)
-            
+        # ★ データ保存は activity_loop 側で行うので、ここでは不要
+
     @activity_loop.before_loop
     async def before_activity_loop(self):
         await self.bot.wait_until_ready()

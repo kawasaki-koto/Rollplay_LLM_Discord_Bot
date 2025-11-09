@@ -74,19 +74,19 @@
     "crazy": 0
   },
   "current_emotions": {
-    "joy": 323,
-    "anticipation": 445,
+    "joy": 73,
+    "anticipation": 165,
     "anger": 0,
     "disgust": 0,
-    "sadness": 0,
-    "surprise": 25,
+    "sadness": 20,
+    "surprise": 0,
     "fear": 0,
-    "trust": 340,
-    "love": 385,
-    "libido": 500,
+    "trust": 200,
+    "love": 47,
+    "libido": 0,
     "shame": 0,
-    "guilty": 10,
+    "guilty": 0,
     "jealousy": 0,
-    "crazy": 25
+    "crazy": 0
   }
 }
