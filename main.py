@@ -11,6 +11,8 @@ import utils.config_manager as config
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
+intents.presences = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # config_managerにBotインスタンスを設定

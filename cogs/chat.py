@@ -82,12 +82,16 @@ class ChatManagerCog(commands.Cog, name="ChatManagerCog"):
         if channel_id_str not in self.unread_data:
             self.unread_data[channel_id_str] = []
 
-        self.unread_data[channel_id_str].append({
-            'author': message.author.display_name, 'content': message.content,
-            'timestamp': prompt_builder.get_current_time_str()
-        })
-        log_info("UNREAD", f"[{message.channel.name}] に未読メッセージを1件追加。")
+        # ★ 送信者のアクティビティを取得
+        activity_str = self._get_user_activity_str(message.author)
 
+        self.unread_data[channel_id_str].append({
+            'author': message.author.display_name,
+            'content': message.content,
+            'timestamp': prompt_builder.get_current_time_str(),
+            'activity': activity_str  # ★ ここにアクティビティ情報を追加
+        })
+        log_info("UNREAD", f"[{message.channel.name}] に未読メッセージを1件追加。(Activity: {activity_str})")
 
     @tasks.loop(seconds=1.0)
     async def activity_loop(self):
@@ -242,6 +246,30 @@ class ChatManagerCog(commands.Cog, name="ChatManagerCog"):
         # 既存の処理関数をそのまま呼び出す
         await self.process_channel_activity(channel_id)
         # ★ データ保存は activity_loop 側で行うので、ここでは不要
+
+    def _get_user_activity_str(self, member: discord.Member) -> str:
+        # ★ デバッグ用ログ出力
+        print(f"[DEBUG] User: {member.display_name}, Activities: {member.activities}")
+
+        if not member or not member.activities:
+            return "特になし"
+
+        activity_texts = []
+        for activity in member.activities:
+            if isinstance(activity, discord.Spotify):
+                activity_texts.append(f"Spotifyで音楽を聴いている (曲: {activity.title}, アーティスト: {activity.artist})")
+            elif isinstance(activity, discord.Game):
+                activity_texts.append(f"ゲームをプレイ中 (タイトル: {activity.name})")
+            elif isinstance(activity, discord.Streaming):
+                activity_texts.append(f"配信中 (タイトル: {activity.name}, ゲーム: {activity.game})")
+            elif isinstance(activity, discord.CustomActivity):
+                 if activity.name:
+                    activity_texts.append(f"カスタムステータス: {activity.name}")
+            else:
+                # その他のアクティビティ
+                activity_texts.append(f"アクティビティ中: {activity.name}")
+
+        return "、".join(activity_texts) if activity_texts else "特になし"
 
     @activity_loop.before_loop
     async def before_activity_loop(self):
